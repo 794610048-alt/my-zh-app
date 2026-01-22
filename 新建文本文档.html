@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>临时在线客服系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <style>
+        body { font-family: 'PingFang SC', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .container { display: flex; flex-direction: column; height: 90vh; }
+        #chatBox { flex: 1; border: 1px solid #ddd; padding: 15px; overflow-y: auto; margin-bottom: 15px; }
+        .message { margin: 10px 0; padding: 10px; border-radius: 10px; max-width: 80%; }
+        .admin { background: #e3f2fd; align-self: flex-start; }
+        .user { background: #f5f5f5; align-self: flex-end; margin-left: auto; }
+        #inputArea { display: flex; gap: 10px; }
+        #messageInput { flex: 1; padding: 10px; border: 1px solid #ddd; }
+        button { padding: 10px 20px; background: #07c160; color: white; border: none; cursor: pointer; }
+        #qrContainer { text-align: center; margin: 20px 0; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 管理员界面 -->
+        <div id="adminPanel">
+            <h2>临时客服系统</h2>
+            <button id="createRoomBtn">创建新会话</button>
+            <div id="qrContainer" class="hidden"></div>
+>
+           div id="chatBox"></div>
+            <div id="inputArea" class="hidden">
+                <input type="text" id="messageInput" placeholder="输入消息...">
+                <button id="sendBtn">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 使用纯前端WebSocket服务（实际项目需替换为自建WS服务器）
+        const WS_SERVER = "wss://free.blr2.piesocket.com/v3/1?api_key=your-key&notify_self=1";
+
+        let ws = null;
+        let roomId = null;
+        let isAdmin = false;
+
+        document.getElementById('createRoomBtn').addEventListener('click', createNewRoom);
+        document.getElementById('sendBtn').addEventListener('click', sendMessage);
+
+        // 创建临时聊天室
+        function createNewRoom() {
+            roomId = 'room_' + Date.now() + Math.random().toString(36).substr(2, 5);
+            isAdmin = true;
+
+            // 生成二维码
+            const pageUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+            document.getElementById('qrContainer').innerHTML = '';
+            new QRCode(document.getElementById('qrContainer'), {
+                text: pageUrl,
+                width: 200,
+                height: 200
+            });
+
+            document.getElementById('qrContainer').classList.remove('hidden');
+            document.getElementById('inputArea').classList.remove('hidden');
+
+            connectWebSocket();
+            addMessage('系统', '等待用户加入...', 'system');
+        }
+
+        // 连接WebSocket
+        function connectWebSocket() {
+            if (ws) ws.close();
+
+            ws = new WebSocket(`${WS_SERVER}&room=${roomId}`);
+
+            ws.onopen = () => {
+                const role = isAdmin ? '管理员' : '用户';
+                addMessage('系统', `${role}已连接`, 'system');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.sender === (isAdmin ? 'user' : 'admin')) {
+                    addMessage(data.sender === 'admin' ? '客服' : '访客', data.text, data.sender);
+                }
+            };
+
+            ws.onclose = () => {
+                addMessage('系统', '连接已关闭', 'system');
+            };
+        }
+
+        // 发送消息
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            ws.send(JSON.stringify({
+                sender: isAdmin ? 'admin' : 'user',
+                room: roomId,
+                text: message
+            }));
+
+            addMessage(isAdmin ? '我' : '访客', message, isAdmin ? 'admin' : 'user');
+            input.value = '';
+            input.focus();
+        }
+
+        // 添加消息到聊天框
+        function addMessage(name, text, type) {
+            const chatBox = document.getElementById('chatBox');
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', type);
+            messageDiv.innerHTML = `<strong>${name}:</strong> ${text}`;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 页面加载时检查URL参数
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomParam = urlParams.get('room');
+
+            if (roomParam) {
+                roomId = roomParam;
+                isAdmin = false;
+                document.getElementById('createRoomBtn').classList.add('hidden');
+                document.getElementById('inputArea').classList.remove('hidden');
+                document.getElementById('chatBox').innerHTML = '';
+                connectWebSocket();
+                addMessage('系统', '已连接客服', 'system');
+            }
+        };
+    </script>
+</body>
+</html>
